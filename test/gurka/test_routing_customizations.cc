@@ -52,14 +52,25 @@ std::string route_request(const gurka::map& map,
 std::string matrix_request(const gurka::map& map,
                            const std::vector<std::string>& sources,
                            const std::vector<std::string>& targets,
-                           const std::vector<baldr::GraphId>& edge_whitelist) {
+                           const std::vector<baldr::GraphId>& edge_whitelist,
+                           bool include_route_edge_ids = false,
+                           const char* format = nullptr,
+                           bool verbose = true) {
   auto request_json =
       gurka::detail::build_valhalla_request({"sources", "targets"},
                                             {gurka::detail::to_lls(map.nodes, sources),
                                              gurka::detail::to_lls(map.nodes, targets)});
   rapidjson::Document doc;
   doc.Parse(request_json.c_str());
+  doc["verbose"].SetBool(verbose);
   add_edge_whitelist(doc, edge_whitelist);
+  if (include_route_edge_ids) {
+    doc.AddMember(rapidjson::StringRef("include_route_edge_ids"), true, doc.GetAllocator());
+  }
+  if (format) {
+    doc.AddMember(rapidjson::StringRef("format"),
+                  rapidjson::Value().SetString(format, doc.GetAllocator()), doc.GetAllocator());
+  }
   return serialize(doc);
 }
 
@@ -115,8 +126,9 @@ TEST_F(RoutingCustomizations, MatrixReturnsNullForPairsClosedByWhitelist) {
   const auto bc = edge_id("B", "C");
 
   std::string response;
-  gurka::do_action(Options::sources_to_targets, map, matrix_request(map, {"A", "D"}, {"C"}, {ab, bc}),
-                   {}, &response);
+  auto result = gurka::do_action(Options::sources_to_targets, map,
+                                 matrix_request(map, {"A", "D"}, {"C"}, {ab, bc}), {}, &response);
+  EXPECT_EQ(result.matrix().edge_ids_size(), 0);
 
   rapidjson::Document doc;
   doc.Parse(response.c_str());
@@ -125,6 +137,82 @@ TEST_F(RoutingCustomizations, MatrixReturnsNullForPairsClosedByWhitelist) {
   const auto rows = doc["sources_to_targets"].GetArray();
   EXPECT_FALSE(rows[0].GetArray()[0].GetObject()["time"].IsNull());
   EXPECT_TRUE(rows[1].GetArray()[0].GetObject()["time"].IsNull());
+  EXPECT_FALSE(rows[0].GetArray()[0].GetObject().HasMember("edge_ids"));
+}
+
+TEST_F(RoutingCustomizations, MatrixEdgeIdsMatchRouteEdgeIdsWhenRequested) {
+  const auto ab = edge_id("A", "B");
+  const auto bc = edge_id("B", "C");
+
+  std::string matrix_response;
+  auto matrix_result =
+      gurka::do_action(Options::sources_to_targets, map,
+                       matrix_request(map, {"A"}, {"C"}, {ab, bc}, true), {}, &matrix_response);
+
+  ASSERT_EQ(matrix_result.matrix().edge_ids_size(), 1);
+  const auto& matrix_edge_ids = matrix_result.matrix().edge_ids(0);
+  ASSERT_EQ(matrix_edge_ids.edge_id_size(), 2);
+  EXPECT_EQ(matrix_edge_ids.edge_id(0), ab.value);
+  EXPECT_EQ(matrix_edge_ids.edge_id(1), bc.value);
+
+  auto route_result =
+      gurka::do_action(Options::route, map, route_request(map, {"A", "C"}, {ab, bc}, true));
+  const auto& route_leg = route_result.directions().routes(0).legs(0);
+  ASSERT_EQ(route_leg.edge_id_size(), matrix_edge_ids.edge_id_size());
+  for (int i = 0; i < route_leg.edge_id_size(); ++i) {
+    EXPECT_EQ(matrix_edge_ids.edge_id(i), route_leg.edge_id(i));
+  }
+
+  rapidjson::Document doc;
+  doc.Parse(matrix_response.c_str());
+  ASSERT_FALSE(doc.HasParseError());
+  const auto& json_edge_ids =
+      doc["sources_to_targets"].GetArray()[0].GetArray()[0].GetObject()["edge_ids"];
+  ASSERT_TRUE(json_edge_ids.IsArray());
+  ASSERT_EQ(json_edge_ids.Size(), 2);
+  EXPECT_EQ(json_edge_ids[0].GetUint64(), ab.value);
+  EXPECT_EQ(json_edge_ids[1].GetUint64(), bc.value);
+
+  std::string slim_matrix_response;
+  gurka::do_action(Options::sources_to_targets, map,
+                   matrix_request(map, {"A"}, {"C"}, {ab, bc}, true, nullptr, false), {},
+                   &slim_matrix_response);
+  doc.Parse(slim_matrix_response.c_str());
+  ASSERT_FALSE(doc.HasParseError());
+  const auto& slim_edge_ids =
+      doc["sources_to_targets"].GetObject()["edge_ids"].GetArray()[0].GetArray()[0].GetArray();
+  ASSERT_EQ(slim_edge_ids.Size(), 2);
+  EXPECT_EQ(slim_edge_ids[0].GetUint64(), ab.value);
+  EXPECT_EQ(slim_edge_ids[1].GetUint64(), bc.value);
+
+  std::string pbf_bytes;
+  gurka::do_action(Options::sources_to_targets, map,
+                   matrix_request(map, {"A"}, {"C"}, {ab, bc}, true, "pbf"), {}, &pbf_bytes);
+
+  Api pbf_response;
+  ASSERT_TRUE(pbf_response.ParseFromString(pbf_bytes));
+  ASSERT_EQ(pbf_response.matrix().edge_ids_size(), 1);
+  ASSERT_EQ(pbf_response.matrix().edge_ids(0).edge_id_size(), 2);
+  EXPECT_EQ(pbf_response.matrix().edge_ids(0).edge_id(0), ab.value);
+  EXPECT_EQ(pbf_response.matrix().edge_ids(0).edge_id(1), bc.value);
+}
+
+TEST_F(RoutingCustomizations, MatrixEdgeIdsAreEmptyForClosedWhitelist) {
+  std::string response;
+  auto result = gurka::do_action(Options::sources_to_targets, map,
+                                 matrix_request(map, {"A"}, {"C"}, {}, true), {}, &response);
+
+  ASSERT_EQ(result.matrix().edge_ids_size(), 1);
+  EXPECT_EQ(result.matrix().edge_ids(0).edge_id_size(), 0);
+
+  rapidjson::Document doc;
+  doc.Parse(response.c_str());
+  ASSERT_FALSE(doc.HasParseError());
+
+  const auto& cell = doc["sources_to_targets"].GetArray()[0].GetArray()[0].GetObject();
+  EXPECT_TRUE(cell["time"].IsNull());
+  ASSERT_TRUE(cell["edge_ids"].IsArray());
+  EXPECT_EQ(cell["edge_ids"].Size(), 0);
 }
 
 TEST_F(RoutingCustomizations, RouteEdgeIdsAreReturnedInLegOrderWhenRequested) {

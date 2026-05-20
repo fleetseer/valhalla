@@ -31,11 +31,11 @@ Behavior:
 
 The hot-path check does not allocate and does not hash.
 
-## Ordered Route Edge IDs
+## Ordered Route And Matrix Edge IDs
 
-Route responses can include the ordered directed edge IDs used by each leg.
+Route and matrix responses can include ordered directed edge IDs.
 
-Request field:
+Route request field:
 
 ```json
 {
@@ -45,15 +45,33 @@ Request field:
 }
 ```
 
-Output:
+Route output:
 
 - Valhalla JSON: `trip.legs[].edge_ids`
 - PBF: `DirectionsLeg.edge_id`, and `TripLeg.edge_id` when the `trip` field
   selector is requested.
 
+Matrix request field:
+
+```json
+{
+  "sources": [{"lat": 0.0, "lon": 0.0}],
+  "targets": [{"lat": 0.1, "lon": 0.1}],
+  "costing": "auto",
+  "include_route_edge_ids": true
+}
+```
+
+Matrix output:
+
+- Verbose Valhalla JSON: `sources_to_targets[source][target].edge_ids`
+- Slim Valhalla JSON: `sources_to_targets.edge_ids[source][target]`
+- PBF: `Matrix.edge_ids[cell_index].edge_id`
+
 The IDs are copied from the final `TripLeg` node edges, so normal route
-construction returns the leg edge sequence after shortcut recovery. Default
-route responses are unchanged.
+construction returns the leg edge sequence after shortcut recovery. Matrix IDs
+are copied from the reconstructed `CostMatrix` path. Default route and matrix
+responses are unchanged.
 
 ## Crash Hardening
 
@@ -79,6 +97,8 @@ Focused tests live in `test/gurka/test_routing_customizations.cc`:
 - whitelist rejects a route when a required edge is absent;
 - matrix returns finite costs for connected pairs and null costs for pairs
   closed by the allowlist;
+- matrix edge ID output matches the route edge ID sequence and fails closed with
+  empty sequences when the allowlist is empty;
 - optional route edge ID output returns the expected ordered edge sequence in
   Valhalla JSON, default PBF directions output, and PBF trip-selector output.
 
