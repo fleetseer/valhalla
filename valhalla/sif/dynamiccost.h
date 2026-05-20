@@ -22,9 +22,11 @@
 
 #include <boost/container/small_vector.hpp>
 
+#include <algorithm>
 #include <cstdint>
 #include <memory>
 #include <unordered_map>
+#include <vector>
 
 // macros aren't great but writing these out for every option is an abomination worse than this macro
 
@@ -1063,6 +1065,9 @@ public:
    *         false otherwise.
    */
   bool IsUserAvoidEdge(const baldr::GraphId& edgeid) const {
+    if (edge_whitelist_enabled_ && !IsEdgeWhitelisted(edgeid)) {
+      return true;
+    }
     return (user_exclude_edges_.size() != 0 &&
             user_exclude_edges_.find(edgeid) != user_exclude_edges_.end());
   }
@@ -1077,6 +1082,9 @@ public:
    *         false otherwise.
    */
   bool AvoidAsOriginEdge(const baldr::GraphId& edgeid, const float percent_along) const {
+    if (edge_whitelist_enabled_ && !IsEdgeWhitelisted(edgeid)) {
+      return true;
+    }
     auto avoid = user_exclude_edges_.find(edgeid);
     return (avoid != user_exclude_edges_.end() && avoid->second >= percent_along);
   }
@@ -1091,8 +1099,15 @@ public:
    *         false otherwise.
    */
   bool AvoidAsDestinationEdge(const baldr::GraphId& edgeid, const float percent_along) const {
+    if (edge_whitelist_enabled_ && !IsEdgeWhitelisted(edgeid)) {
+      return true;
+    }
     auto avoid = user_exclude_edges_.find(edgeid);
     return (avoid != user_exclude_edges_.end() && avoid->second <= percent_along);
+  }
+
+  bool IsEdgeWhitelisted(const baldr::GraphId& edgeid) const {
+    return std::binary_search(edge_whitelist_.begin(), edge_whitelist_.end(), edgeid);
   }
 
   /**
@@ -1316,6 +1331,8 @@ protected:
 
   // User specified edges to avoid with percent along (for avoiding PathEdges of locations)
   std::unordered_map<baldr::GraphId, float> user_exclude_edges_;
+  bool edge_whitelist_enabled_{false};
+  std::vector<baldr::GraphId> edge_whitelist_;
 
   // Weighting to apply to ferry edges
   float ferry_factor_, rail_ferry_factor_;

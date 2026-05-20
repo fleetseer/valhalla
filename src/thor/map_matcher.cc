@@ -1,5 +1,6 @@
 #include "thor/map_matcher.h"
 #include "baldr/datetime.h"
+#include "baldr/graphreader.h"
 #include "baldr/time_info.h"
 
 #include <vector>
@@ -76,10 +77,11 @@ interpolate_matches(const std::vector<valhalla::meili::MatchResult>& matches,
     interpolated.reserve(matches.size());
     size_t last_idx = idx;
     for (auto segment = begin_edge; segment != end_edge; ++segment) {
-      float edge_length = matcher->graphreader()
-                              .GetGraphTile(segment->edgeid)
-                              ->directededge(segment->edgeid)
-                              ->length();
+      const auto tile = matcher->graphreader().GetGraphTile(segment->edgeid);
+      if (!tile) {
+        throw tile_gone_error_t("MapMatcher::interpolate_matches failed", segment->edgeid);
+      }
+      float edge_length = tile->directededge(segment->edgeid)->length();
       float total_length = segment == begin_edge ? -edges.front().source * edge_length
                                                  : interpolated.back().total_distance;
       // get the distance and match result for the begin node of the edge
@@ -208,6 +210,9 @@ MapMatcher::FormPath(meili::MapMatcher* matcher,
     // Get the directed edge
     GraphId edge_id = edge_segment.edgeid;
     matcher->graphreader().GetGraphTile(edge_id, tile);
+    if (!tile) {
+      throw tile_gone_error_t("MapMatcher::FormPath failed", edge_id);
+    }
     directededge = tile->directededge(edge_id);
 
     // Check if connected to prior edge
@@ -297,6 +302,9 @@ MapMatcher::FormPath(meili::MapMatcher* matcher,
     prev_segment = &edge_segment;
     prior_node = directededge->endnode();
     graph_tile_ptr end_tile = matcher->graphreader().GetGraphTile(prior_node);
+    if (!end_tile) {
+      throw tile_gone_error_t("MapMatcher::FormPath failed", prior_node);
+    }
     nodeinfo = end_tile->node(prior_node);
   }
 

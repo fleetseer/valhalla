@@ -15,6 +15,8 @@
 
 #include <boost/optional.hpp>
 
+#include <stdexcept>
+
 using namespace valhalla::baldr;
 using namespace valhalla::midgard;
 
@@ -220,6 +222,19 @@ DynamicCost::DynamicCost(const Costing& costing,
       // for internal use only
       hierarchy_limits_.back().set_up_transition_count(0);
     }
+  }
+
+  edge_whitelist_enabled_ = costing.options().edge_whitelist_enabled();
+  if (edge_whitelist_enabled_) {
+    edge_whitelist_.reserve(costing.options().edge_whitelist_size());
+    for (const auto edge_id : costing.options().edge_whitelist()) {
+      try {
+        edge_whitelist_.emplace_back(edge_id);
+      } catch (const std::logic_error&) {}
+    }
+    std::sort(edge_whitelist_.begin(), edge_whitelist_.end());
+    edge_whitelist_.erase(std::unique(edge_whitelist_.begin(), edge_whitelist_.end()),
+                          edge_whitelist_.end());
   }
 
   // Add avoid edges to internal set

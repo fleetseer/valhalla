@@ -185,11 +185,17 @@ void add_shortcut(baldr::GraphReader& reader,
   }
   GraphId edge = static_cast<GraphId>(cost_factor->id());
   graph_tile_ptr tile = reader.GetGraphTile(shortcut);
+  if (!tile) {
+    throw tile_gone_error_t("add_shortcut failed", shortcut);
+  }
   // it's part of a shortcut
   auto constituents = reader.RecoverShortcut(shortcut);
   auto* shortcut_edge = tile->directededge(shortcut);
 
   tile = reader.GetGraphTile(edge);
+  if (!tile) {
+    throw tile_gone_error_t("add_shortcut failed", edge);
+  }
   auto* current_edge = tile->directededge(edge);
 
   // walk the base edges until we find ours
@@ -199,8 +205,9 @@ void add_shortcut(baldr::GraphReader& reader,
       break;
 
     tile = reader.GetGraphTile(constituent, tile);
-    if (!tile)
-      break;
+    if (!tile) {
+      throw tile_gone_error_t("add_shortcut failed", constituent);
+    }
 
     auto* de = tile->directededge(constituent);
     accumulated_length += de->length();

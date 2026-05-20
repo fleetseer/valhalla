@@ -667,6 +667,14 @@ void legs(valhalla::Api& api, int route_index, rapidjson::writer_wrapper_t& writ
     ++trip_leg_itr;
     writer.end_object();
 
+    if (api.options().include_route_edge_ids()) {
+      writer.start_array("edge_ids");
+      for (const auto edge_id : directions_leg.edge_id()) {
+        writer(edge_id);
+      }
+      writer.end_array();
+    }
+
     writer("shape", directions_leg.shape());
 
     writer.end_object(); // leg
