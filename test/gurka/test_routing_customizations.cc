@@ -1,6 +1,7 @@
 #include "baldr/rapidjson_utils.h"
 #include "gurka.h"
 #include "test.h"
+#include "tyr/serializers.h"
 
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
@@ -30,7 +31,8 @@ void add_edge_whitelist(rapidjson::Document& doc, const std::vector<baldr::Graph
 std::string route_request(const gurka::map& map,
                           const std::vector<std::string>& locations,
                           const std::vector<baldr::GraphId>& edge_whitelist,
-                          bool include_route_edge_ids = false) {
+                          bool include_route_edge_ids = false,
+                          const char* format = nullptr) {
   auto request_json =
       gurka::detail::build_valhalla_request({"locations"},
                                             {gurka::detail::to_lls(map.nodes, locations)});
@@ -39,6 +41,10 @@ std::string route_request(const gurka::map& map,
   add_edge_whitelist(doc, edge_whitelist);
   if (include_route_edge_ids) {
     doc.AddMember(rapidjson::StringRef("include_route_edge_ids"), true, doc.GetAllocator());
+  }
+  if (format) {
+    doc.AddMember(rapidjson::StringRef("format"),
+                  rapidjson::Value().SetString(format, doc.GetAllocator()), doc.GetAllocator());
   }
   return serialize(doc);
 }
@@ -139,4 +145,34 @@ TEST_F(RoutingCustomizations, RouteEdgeIdsAreReturnedInLegOrderWhenRequested) {
   ASSERT_EQ(edge_ids.Size(), 2);
   EXPECT_EQ(edge_ids[0].GetUint64(), ab.value);
   EXPECT_EQ(edge_ids[1].GetUint64(), bc.value);
+}
+
+TEST_F(RoutingCustomizations, PbfRouteEdgeIdsAreReturnedInLegOrderWhenRequested) {
+  const auto ab = edge_id("A", "B");
+  const auto bc = edge_id("B", "C");
+
+  std::string pbf_bytes;
+  gurka::do_action(Options::route, map, route_request(map, {"A", "C"}, {ab, bc}, true, "pbf"), {},
+                   &pbf_bytes);
+
+  Api pbf_response;
+  ASSERT_TRUE(pbf_response.ParseFromString(pbf_bytes));
+  const auto& directions_leg = pbf_response.directions().routes(0).legs(0);
+  ASSERT_EQ(directions_leg.edge_id_size(), 2);
+  EXPECT_EQ(directions_leg.edge_id(0), ab.value);
+  EXPECT_EQ(directions_leg.edge_id(1), bc.value);
+
+  auto result = gurka::do_action(Options::route, map, route_request(map, {"A", "C"}, {ab, bc}, true));
+  result.mutable_options()->set_format(Options::pbf);
+  result.mutable_options()->mutable_pbf_field_selector()->set_trip(true);
+  pbf_bytes = tyr::serializePbf(result);
+
+  pbf_response.Clear();
+  ASSERT_TRUE(pbf_response.ParseFromString(pbf_bytes));
+  ASSERT_TRUE(pbf_response.has_trip());
+  ASSERT_FALSE(pbf_response.has_directions());
+  const auto& trip_leg = pbf_response.trip().routes(0).legs(0);
+  ASSERT_EQ(trip_leg.edge_id_size(), 2);
+  EXPECT_EQ(trip_leg.edge_id(0), ab.value);
+  EXPECT_EQ(trip_leg.edge_id(1), bc.value);
 }

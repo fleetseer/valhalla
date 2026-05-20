@@ -48,7 +48,8 @@ Request field:
 Output:
 
 - Valhalla JSON: `trip.legs[].edge_ids`
-- PBF: `DirectionsLeg.edge_id`
+- PBF: `DirectionsLeg.edge_id`, and `TripLeg.edge_id` when the `trip` field
+  selector is requested.
 
 The IDs are copied from the final `TripLeg` node edges, so normal route
 construction returns the leg edge sequence after shortcut recovery. Default
@@ -79,7 +80,7 @@ Focused tests live in `test/gurka/test_routing_customizations.cc`:
 - matrix returns finite costs for connected pairs and null costs for pairs
   closed by the allowlist;
 - optional route edge ID output returns the expected ordered edge sequence in
-  PBF and Valhalla JSON.
+  Valhalla JSON, default PBF directions output, and PBF trip-selector output.
 
 Run the focused tests:
 
