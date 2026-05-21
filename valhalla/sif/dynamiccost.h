@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <unordered_map>
 #include <vector>
 
@@ -130,6 +131,30 @@
 
 namespace valhalla {
 namespace sif {
+
+constexpr uint64_t kRegisteredEdgeWhitelistHandleMask = uint64_t{1} << 63;
+
+struct EdgeWhitelistTileSet {
+  std::unordered_map<baldr::GraphId, std::vector<uint64_t>> tiles;
+
+  bool contains(const baldr::GraphId& edgeid) const {
+    const auto tile = tiles.find(edgeid.tile_base());
+    if (tile == tiles.end()) {
+      return false;
+    }
+
+    const auto word_index = edgeid.id() / 64;
+    const auto bit_index = edgeid.id() % 64;
+    return word_index < tile->second.size() &&
+      ((tile->second[word_index] >> bit_index) & uint64_t{1}) != 0;
+  }
+};
+
+std::shared_ptr<const EdgeWhitelistTileSet> BuildEdgeWhitelistTileSet(const std::vector<uint64_t>& edge_ids);
+uint64_t RegisterEdgeWhitelistTileSet(std::shared_ptr<const EdgeWhitelistTileSet> edge_whitelist);
+std::shared_ptr<const EdgeWhitelistTileSet> GetRegisteredEdgeWhitelistTileSet(uint64_t handle);
+uint64_t MakeRegisteredEdgeWhitelistSentinel(uint64_t handle);
+std::optional<uint64_t> ParseRegisteredEdgeWhitelistSentinel(uint64_t edge_id);
 
 struct cost_edge_t {
   double start{0.};
@@ -1107,7 +1132,7 @@ public:
   }
 
   bool IsEdgeWhitelisted(const baldr::GraphId& edgeid) const {
-    return std::binary_search(edge_whitelist_.begin(), edge_whitelist_.end(), edgeid);
+    return edge_whitelist_ != nullptr && edge_whitelist_->contains(edgeid);
   }
 
   /**
@@ -1332,7 +1357,7 @@ protected:
   // User specified edges to avoid with percent along (for avoiding PathEdges of locations)
   std::unordered_map<baldr::GraphId, float> user_exclude_edges_;
   bool edge_whitelist_enabled_{false};
-  std::vector<baldr::GraphId> edge_whitelist_;
+  std::shared_ptr<const EdgeWhitelistTileSet> edge_whitelist_;
 
   // Weighting to apply to ferry edges
   float ferry_factor_, rail_ferry_factor_;

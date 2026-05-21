@@ -15,6 +15,7 @@
 
 #include <boost/optional.hpp>
 
+#include <mutex>
 #include <stdexcept>
 
 using namespace valhalla::baldr;
@@ -23,6 +24,11 @@ using namespace valhalla::midgard;
 namespace {
 
 constexpr double kMinCustomFactor = std::numeric_limits<double>::epsilon();
+
+std::mutex registered_edge_whitelists_mutex;
+uint64_t next_registered_edge_whitelist_handle = 1;
+std::unordered_map<uint64_t, std::shared_ptr<const valhalla::sif::EdgeWhitelistTileSet>>
+    registered_edge_whitelists;
 
 uint8_t SpeedMask_Parse(const boost::optional<const rapidjson::Value&>& speed_types) {
   static const std::unordered_map<std::string, uint8_t> types{
@@ -56,6 +62,56 @@ uint8_t SpeedMask_Parse(const boost::optional<const rapidjson::Value&>& speed_ty
 
 namespace valhalla {
 namespace sif {
+
+std::shared_ptr<const EdgeWhitelistTileSet> BuildEdgeWhitelistTileSet(
+    const std::vector<uint64_t>& edge_ids) {
+  auto output = std::make_shared<EdgeWhitelistTileSet>();
+  for (const auto edge_id : edge_ids) {
+    try {
+      const GraphId graph_id(edge_id);
+      auto& words = output->tiles[graph_id.tile_base()];
+      const auto word_index = graph_id.id() / 64;
+      const auto bit_index = graph_id.id() % 64;
+      if (words.size() <= word_index) {
+        words.resize(word_index + 1);
+      }
+      words[word_index] |= uint64_t{1} << bit_index;
+    } catch (const std::logic_error&) {}
+  }
+
+  return output;
+}
+
+uint64_t RegisterEdgeWhitelistTileSet(std::shared_ptr<const EdgeWhitelistTileSet> edge_whitelist) {
+  if (!edge_whitelist) {
+    return 0;
+  }
+
+  std::lock_guard<std::mutex> lock(registered_edge_whitelists_mutex);
+  const auto handle = next_registered_edge_whitelist_handle++;
+  registered_edge_whitelists.emplace(handle, std::move(edge_whitelist));
+  return handle;
+}
+
+std::shared_ptr<const EdgeWhitelistTileSet> GetRegisteredEdgeWhitelistTileSet(uint64_t handle) {
+  std::lock_guard<std::mutex> lock(registered_edge_whitelists_mutex);
+  const auto found = registered_edge_whitelists.find(handle);
+  if (found == registered_edge_whitelists.end()) {
+    return nullptr;
+  }
+  return found->second;
+}
+
+uint64_t MakeRegisteredEdgeWhitelistSentinel(uint64_t handle) {
+  return kRegisteredEdgeWhitelistHandleMask | handle;
+}
+
+std::optional<uint64_t> ParseRegisteredEdgeWhitelistSentinel(uint64_t edge_id) {
+  if ((edge_id & kRegisteredEdgeWhitelistHandleMask) == 0) {
+    return std::nullopt;
+  }
+  return edge_id & ~kRegisteredEdgeWhitelistHandleMask;
+}
 
 // default options/parameters
 namespace {
@@ -226,15 +282,18 @@ DynamicCost::DynamicCost(const Costing& costing,
 
   edge_whitelist_enabled_ = costing.options().edge_whitelist_enabled();
   if (edge_whitelist_enabled_) {
-    edge_whitelist_.reserve(costing.options().edge_whitelist_size());
+    std::vector<uint64_t> edge_ids;
+    edge_ids.reserve(costing.options().edge_whitelist_size());
     for (const auto edge_id : costing.options().edge_whitelist()) {
-      try {
-        edge_whitelist_.emplace_back(edge_id);
-      } catch (const std::logic_error&) {}
+      if (auto handle = ParseRegisteredEdgeWhitelistSentinel(edge_id); handle.has_value()) {
+        edge_whitelist_ = GetRegisteredEdgeWhitelistTileSet(*handle);
+        break;
+      }
+      edge_ids.push_back(edge_id);
     }
-    std::sort(edge_whitelist_.begin(), edge_whitelist_.end());
-    edge_whitelist_.erase(std::unique(edge_whitelist_.begin(), edge_whitelist_.end()),
-                          edge_whitelist_.end());
+    if (edge_whitelist_ == nullptr) {
+      edge_whitelist_ = BuildEdgeWhitelistTileSet(edge_ids);
+    }
   }
 
   // Add avoid edges to internal set
