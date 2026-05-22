@@ -5,7 +5,7 @@ jobs:
   changelog:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@ee0669bd1cc54295c223e0bb666b733df41de1c5
       - name: Validate changelog
         shell: bash
         run: |
@@ -35,9 +35,9 @@ jobs:
   spell-check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@ee0669bd1cc54295c223e0bb666b733df41de1c5
 
       - name: Spell-check
-        uses: crate-ci/typos@v1.15.7
+        uses: crate-ci/typos@0188ddf84227d5948179ababd86fca9c2226a015
         with:
           config: ./.github/workflows/typos.toml

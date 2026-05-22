@@ -21,7 +21,7 @@ jobs:
             mingw64-gdal \
             mingw64-python3 \
             protobuf-compiler
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@ee0669bd1cc54295c223e0bb666b733df41de1c5
       - name: Checkout submodules
         shell: bash
         run: |

@@ -5,7 +5,7 @@ SHELL := /bin/bash
         release-py release-ts release-ts-tag
 
 generate-ts:
-	cd typescript && npm install && npm run generate
+	cd typescript && npm ci && npm run generate
 
 version-ts:
 	@scripts/set_version.sh ts
@@ -38,4 +38,3 @@ release-py: build-py publish-py
 release-ts: generate-ts version-ts attach-commit-ts build-ts publish-ts
 
 release-ts-tag: generate-ts version-ts attach-commit-ts build-ts publish-ts-tag
-
