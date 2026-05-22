@@ -102,6 +102,11 @@ std::shared_ptr<const EdgeWhitelistTileSet> GetRegisteredEdgeWhitelistTileSet(ui
   return found->second;
 }
 
+void UnregisterEdgeWhitelistTileSet(uint64_t handle) {
+  std::lock_guard<std::mutex> lock(registered_edge_whitelists_mutex);
+  registered_edge_whitelists.erase(handle);
+}
+
 uint64_t MakeRegisteredEdgeWhitelistSentinel(uint64_t handle) {
   return kRegisteredEdgeWhitelistHandleMask | handle;
 }

@@ -153,6 +153,7 @@ struct EdgeWhitelistTileSet {
 std::shared_ptr<const EdgeWhitelistTileSet> BuildEdgeWhitelistTileSet(const std::vector<uint64_t>& edge_ids);
 uint64_t RegisterEdgeWhitelistTileSet(std::shared_ptr<const EdgeWhitelistTileSet> edge_whitelist);
 std::shared_ptr<const EdgeWhitelistTileSet> GetRegisteredEdgeWhitelistTileSet(uint64_t handle);
+void UnregisterEdgeWhitelistTileSet(uint64_t handle);
 uint64_t MakeRegisteredEdgeWhitelistSentinel(uint64_t handle);
 std::optional<uint64_t> ParseRegisteredEdgeWhitelistSentinel(uint64_t edge_id);
 
