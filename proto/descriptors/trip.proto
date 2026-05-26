@@ -360,6 +360,7 @@ message TripLeg {
   repeated Closure closures = 13;
   Summary summary = 14;
   repeated LevelChange level_changes = 15;
+  repeated uint64 edge_id = 16;
 }
 
 message TripRoute {

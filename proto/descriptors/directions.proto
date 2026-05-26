@@ -144,6 +144,7 @@ message DirectionsLeg {
   repeated Maneuver maneuver = 6;
   string shape = 7;
   repeated LevelChange level_changes = 8;
+  repeated uint64 edge_id = 9;
 }
 
 message DirectionsRoute {

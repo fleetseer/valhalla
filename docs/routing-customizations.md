@@ -1,92 +1,173 @@
-# Proposed Routing Customizations
+# Routing Customizations
 
 ## Request-Scoped Edge Whitelisting
 
-Add a request-scoped way to restrict routing to an allowed set of directed
-Valhalla edge IDs.
+Route and matrix requests can restrict routing to an allowed set of directed
+Valhalla edge IDs without rewriting graph tiles or changing the binary tile
+format.
 
-Desired behavior:
+JSON request field:
 
-- support route and matrix requests;
-- accept directed edge IDs as Valhalla `GraphId` values;
-- treat any non-whitelisted directed edge as disallowed during costing;
-- apply the check in the normal Sif/Thor routing path rather than by rewriting
-  or copying graph tiles;
-- leave the binary tile format unchanged;
-- return normal no-route responses for disconnected origin/destination pairs.
+```json
+{
+  "locations": [{"lat": 0.0, "lon": 0.0}, {"lat": 0.1, "lon": 0.1}],
+  "costing": "auto",
+  "edge_whitelist": [123456789]
+}
+```
 
-Implementation candidates to compare:
+Behavior:
 
-- sorted `GraphId` vector with binary search;
-- tile-local bitsets keyed by tile ID and local edge index;
-- preloaded allowlist profile IDs referenced by request;
-- request-local allowlist payloads for small ad hoc cases.
+- `edge_whitelist` contains directed `GraphId` integer values.
+- Empty `edge_whitelist: []` is an enabled allowlist with no allowed edges, so
+  the request fails closed.
+- The JSON parser copies the root allowlist into each active costing's
+  `Costing.Options`.
+- PBF clients can set `Costing.Options.edge_whitelist_enabled` and
+  `Costing.Options.edge_whitelist` directly.
+- `DynamicCost` stores the allowlist as a sorted `GraphId` vector and checks it
+  with binary search from the existing user-avoid hooks.
+- Route and matrix failures use normal no-path / unreachable behavior.
 
-The whitelist check is on a hot path, so the chosen structure should avoid
-allocation and expensive hashing inside `Allowed()` / `EdgeCost()` loops.
+The hot-path check does not allocate and does not hash.
 
-## Ordered Route Edge IDs
+## Ordered Route And Matrix Edge IDs
 
-Add an opt-in route output field containing ordered directed edge IDs for the
-selected path.
+Route and matrix responses can include ordered directed edge IDs.
 
-Desired behavior:
+Route request field:
 
-- expose the route's ordered directed `GraphId` edge sequence;
-- make the field optional so default route responses do not change;
-- support JSON and pbf output if practical;
-- return edge IDs per leg, preserving route order;
-- expand shortcut edges to base directed edges, or explicitly document when a
-  returned ID is a shortcut.
+```json
+{
+  "locations": [{"lat": 0.0, "lon": 0.0}, {"lat": 0.1, "lon": 0.1}],
+  "costing": "auto",
+  "include_route_edge_ids": true
+}
+```
 
-This should avoid needing a second `trace_attributes` call merely to recover the
-edge IDs used by a route.
+Route output:
+
+- Valhalla JSON: `trip.legs[].edge_ids`
+- PBF: `DirectionsLeg.edge_id`, and `TripLeg.edge_id` when the `trip` field
+  selector is requested.
+
+Matrix request field:
+
+```json
+{
+  "sources": [{"lat": 0.0, "lon": 0.0}],
+  "targets": [{"lat": 0.1, "lon": 0.1}],
+  "costing": "auto",
+  "include_route_edge_ids": true
+}
+```
+
+Matrix output:
+
+- Verbose Valhalla JSON: `sources_to_targets[source][target].edge_ids`
+- Slim Valhalla JSON: `sources_to_targets.edge_ids[source][target]`
+- PBF: `Matrix.edge_ids[cell_index].edge_id`
+
+The IDs are copied from the final `TripLeg` node edges, so normal route
+construction returns the leg edge sequence after shortcut recovery. Matrix IDs
+are copied from the reconstructed `CostMatrix` path. Default route and matrix
+responses are unchanged.
 
 ## Crash Hardening
 
 Replace native crashes in disconnected or closed-graph cases with structured
 errors.
 
-Known hardening targets from source inspection:
+Hardened targets:
 
-- `src/thor/map_matcher.cc:210-211` calls `GetGraphTile(edge_id, tile)` and then
-  immediately dereferences `tile->directededge(edge_id)`. Add a null check and
-  treat a missing tile as a discontinuity or no-match condition.
-- `src/thor/route_matcher.cc:99-100` calls `reader.GetGraphTile(graphid)` while
-  collecting destination end nodes and immediately dereferences
-  `tile->directededge(graphid)`. Add a null check, matching the existing
-  opposing-edge branch at `src/thor/route_matcher.cc:105-108`.
-- `src/thor/route_action.cc:187-193` fetches shortcut/base-edge tiles in
-  `add_shortcut()` and immediately dereferences them. Add explicit checks before
-  using `tile->directededge(...)`, and return/throw a normal routing error when
-  shortcut recovery cannot safely continue.
-- `src/thor/triplegbuilder.cc:1849-1853`, `1937-1940`, and `1969-1972` already
-  show the preferred pattern: check for missing graph tiles and throw
-  `tile_gone_error_t` instead of dereferencing null.
-- `test/worker_nullptr_tiles.cc:37-42` already simulates random
-  `GraphReader::GetGraphTile()` null returns. Extend that coverage to
-  `trace_attributes`, `trace_route`, and allowlist/closed-graph requests.
-
-Cases to test:
-
-- route request where all candidate paths are closed by an allowlist;
-- matrix request with some connected and some disconnected OD pairs;
-- sparse trace or `trace_attributes` request with gaps or no valid connection;
-- trip-leg construction after no connected path is available.
-
-Expected behavior:
-
-- return a no-route / no-match response instead of crashing;
-- include enough diagnostic context to identify the failing request or pair;
-- prefer failing closed when access is ambiguous.
+- `src/thor/map_matcher.cc` checks missing tiles before dereferencing matched
+  edges, interpolation edges, and end-node tiles.
+- `src/thor/route_matcher.cc` checks destination edge tiles while collecting end
+  nodes.
+- `src/thor/route_action.cc` checks shortcut and base-edge tiles in
+  `add_shortcut()`.
+- `test/worker_nullptr_tiles.cc` now exercises route, trace route, trace
+  attributes, and closed-graph allowlist requests with random null tile reads.
 
 ## Tests
 
-Add focused Gurka tests for:
+Focused tests live in `test/gurka/test_routing_customizations.cc`:
 
 - whitelist allows a route when all required edges are present;
 - whitelist rejects a route when a required edge is absent;
-- matrix returns finite costs for connected pairs and no-route values for
-  disconnected pairs;
-- optional route edge ID output returns the expected ordered edge sequence;
-- disconnected or fully closed requests do not segfault.
+- matrix returns finite costs for connected pairs and null costs for pairs
+  closed by the allowlist;
+- matrix edge ID output matches the route edge ID sequence and fails closed with
+  empty sequences when the allowlist is empty;
+- optional route edge ID output returns the expected ordered edge sequence in
+  Valhalla JSON, default PBF directions output, and PBF trip-selector output.
+
+Run the focused tests:
+
+```bash
+cmake --build build --target gurka_routing_customizations worker_nullptr_tiles -j$(nproc)
+cmake --build build --target run-gurka_routing_customizations
+./build/test/worker_nullptr_tiles
+```
+
+## Importing This Fork
+
+Recommended: pin this fork by commit SHA in the consuming project.
+
+Submodule:
+
+```bash
+git submodule add git@github.com:<your-org-or-user>/valhalla.git third_party/valhalla
+git -C third_party/valhalla fetch origin
+git -C third_party/valhalla checkout <valhalla-custom-commit-sha>
+git add .gitmodules third_party/valhalla
+git commit -m "Pin custom Valhalla fork"
+```
+
+CMake `FetchContent`:
+
+```cmake
+include(FetchContent)
+
+FetchContent_Declare(
+  valhalla
+  GIT_REPOSITORY git@github.com:<your-org-or-user>/valhalla.git
+  GIT_TAG <valhalla-custom-commit-sha>
+)
+FetchContent_MakeAvailable(valhalla)
+```
+
+Avoid tracking a moving branch from the consuming project. Use a SHA or an
+annotated tag so rebuilds are reproducible.
+
+## Keeping The Fork Current
+
+Set upstream once:
+
+```bash
+git remote add upstream https://github.com/valhalla/valhalla.git
+git fetch upstream
+```
+
+Refresh the customization branch:
+
+```bash
+git switch feat/routing-customizations
+git fetch upstream
+git rebase upstream/master
+cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DENABLE_CCACHE=OFF -DENABLE_WERROR=OFF -DENABLE_SINGLE_FILES_WERROR=OFF
+cmake --build build --target parse_request gurka_routing_customizations worker_nullptr_tiles -j$(nproc)
+./build/test/parse_request
+cmake --build build --target run-gurka_routing_customizations
+./build/test/worker_nullptr_tiles
+git push --force-with-lease origin feat/routing-customizations
+```
+
+Update the consuming project after the fork has a new tested commit:
+
+```bash
+git -C third_party/valhalla fetch origin
+git -C third_party/valhalla checkout <new-valhalla-custom-commit-sha>
+git add third_party/valhalla
+git commit -m "Update custom Valhalla fork"
+```

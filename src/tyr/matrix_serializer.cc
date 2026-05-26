@@ -67,6 +67,21 @@ void serialize_shape(const valhalla::Matrix& matrix,
     }
   }
 }
+
+void serialize_edge_ids(const valhalla::Matrix& matrix,
+                        rapidjson::writer_wrapper_t& writer,
+                        const size_t start_td,
+                        const size_t td_count) {
+  for (size_t i = start_td; i < start_td + td_count; ++i) {
+    writer.start_array();
+    if (i < static_cast<size_t>(matrix.edge_ids_size())) {
+      for (const auto edge_id : matrix.edge_ids(i).edge_id()) {
+        writer(edge_id);
+      }
+    }
+    writer.end_array();
+  }
+}
 } // namespace
 
 namespace osrm_serializers {
@@ -138,7 +153,8 @@ void serialize_row(const valhalla::Matrix& matrix,
                    const size_t source_index,
                    const size_t target_index,
                    const double distance_scale,
-                   const ShapeFormat shape_format) {
+                   const ShapeFormat shape_format,
+                   const bool include_route_edge_ids) {
   writer.start_array();
   for (size_t i = start_td; i < start_td + td_count; ++i) {
     // check to make sure a route was found; if not, return null for distance & time in matrix
@@ -207,11 +223,24 @@ void serialize_row(const valhalla::Matrix& matrix,
           }
         }
       }
+      if (include_route_edge_ids) {
+        writer.start_array("edge_ids");
+        if (i < static_cast<size_t>(matrix.edge_ids_size())) {
+          for (const auto edge_id : matrix.edge_ids(i).edge_id()) {
+            writer(edge_id);
+          }
+        }
+        writer.end_array();
+      }
     } else {
       writer("from_index", source_index);
       writer("to_index", target_index + (i - start_td));
       writer("time", nullptr);
       writer("distance", nullptr);
+      if (include_route_edge_ids) {
+        writer.start_array("edge_ids");
+        writer.end_array();
+      }
     }
     writer.end_object();
   }
@@ -228,7 +257,8 @@ std::string serialize(const Api& request, double distance_scale) {
     writer.start_array("sources_to_targets");
     for (int source_index = 0; source_index < options.sources_size(); ++source_index) {
       serialize_row(request.matrix(), writer, source_index * options.targets_size(),
-                    options.targets_size(), source_index, 0, distance_scale, options.shape_format());
+                    options.targets_size(), source_index, 0, distance_scale, options.shape_format(),
+                    options.include_route_edge_ids());
     }
     writer.end_array(); // sources_to_targets
 
@@ -268,6 +298,17 @@ std::string serialize(const Api& request, double distance_scale) {
         writer.start_array();
         serialize_shape(request.matrix(), writer, first_td, options.targets_size(),
                         options.shape_format());
+        writer.end_array();
+      }
+      writer.end_array();
+    }
+
+    if (options.include_route_edge_ids()) {
+      writer.start_array("edge_ids");
+      for (int source_index = 0; source_index < options.sources_size(); ++source_index) {
+        const auto first_td = source_index * options.targets_size();
+        writer.start_array();
+        serialize_edge_ids(request.matrix(), writer, first_td, options.targets_size());
         writer.end_array();
       }
       writer.end_array();

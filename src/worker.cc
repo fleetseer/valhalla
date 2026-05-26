@@ -2,6 +2,7 @@
 #include "baldr/attributes_controller.h"
 #include "baldr/datetime.h"
 #include "baldr/graphconstants.h"
+#include "baldr/graphid.h"
 #include "baldr/json.h"
 #include "baldr/rapidjson_utils.h"
 #include "exceptions.h"
@@ -18,6 +19,7 @@
 #include <cpp-statsd-client/StatsdClient.hpp>
 
 #include <sstream>
+#include <stdexcept>
 
 using namespace valhalla;
 #ifdef ENABLE_SERVICES
@@ -559,6 +561,53 @@ void parse_recostings(const rapidjson::Document& doc,
   }
 }
 
+void parse_edge_whitelist(const rapidjson::Document& doc, valhalla::Options& options) {
+  auto whitelist = rapidjson::get_child_optional(doc, "/edge_whitelist");
+  if (!whitelist) {
+    return;
+  }
+  if (!whitelist->IsArray()) {
+    throw valhalla_exception_t{100, "edge_whitelist must be an array"};
+  }
+
+  std::vector<uint64_t> edge_ids;
+  edge_ids.reserve(whitelist->Size());
+  for (const auto& value : whitelist->GetArray()) {
+    uint64_t edge_id = 0;
+    if (value.IsUint64()) {
+      edge_id = value.GetUint64();
+    } else if (value.IsString()) {
+      try {
+        size_t consumed = 0;
+        edge_id = std::stoull(value.GetString(), &consumed);
+        if (consumed != value.GetStringLength()) {
+          throw std::invalid_argument("trailing characters");
+        }
+      } catch (const std::exception&) {
+        throw valhalla_exception_t{100, "edge_whitelist values must be GraphId integers"};
+      }
+    } else {
+      throw valhalla_exception_t{100, "edge_whitelist values must be GraphId integers"};
+    }
+
+    try {
+      baldr::GraphId(edge_id);
+    } catch (const std::logic_error&) {
+      throw valhalla_exception_t{100, "edge_whitelist contains an invalid GraphId"};
+    }
+    edge_ids.push_back(edge_id);
+  }
+
+  for (auto& costing : *options.mutable_costings()) {
+    auto* costing_options = costing.second.mutable_options();
+    costing_options->set_edge_whitelist_enabled(true);
+    costing_options->clear_edge_whitelist();
+    for (const auto edge_id : edge_ids) {
+      costing_options->add_edge_whitelist(edge_id);
+    }
+  }
+}
+
 // parse x/y/z from the request and validate
 void parse_xyz(const rapidjson::Document& doc, valhalla::Options& options) {
   const auto vt_z =
@@ -768,6 +817,10 @@ void from_json(rapidjson::Document& doc, Options::Action action, Api& api) {
     options.set_directions_type(directions_type);
   }
 
+  options.set_include_route_edge_ids(
+      rapidjson::get<bool>(doc, "/include_route_edge_ids",
+                           pbf ? options.include_route_edge_ids() : false));
+
   auto reverse_tt_strategy = rapidjson::get_optional<std::string>(doc, "/reverse_time_tracking");
   Options::ReverseTimeTracking reverse_tt;
   if (reverse_tt_strategy &&
@@ -936,6 +989,7 @@ void from_json(rapidjson::Document& doc, Options::Action action, Api& api) {
   //   as in the above logic the costing options aren't even parsed yet,
   //   so how can it determine "ignore_closures" there?
   sif::ParseCosting(doc, "/costing_options", options, warnings);
+  parse_edge_whitelist(doc, options);
 
   // if any of the locations params have a date_time object in their locations, we'll remember
   // only /sources_to_targets will parse more than one location collection and there it's fine

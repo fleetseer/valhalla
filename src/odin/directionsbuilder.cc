@@ -100,6 +100,14 @@ void DirectionsBuilder::PopulateDirectionsLeg(const Options& options,
   // Populate locations
   trip_directions.mutable_location()->CopyFrom(etp->location());
 
+  if (options.include_route_edge_ids()) {
+    for (const auto& node : etp->node()) {
+      if (node.has_edge()) {
+        trip_directions.add_edge_id(node.edge().id());
+      }
+    }
+  }
+
   // Populate maneuvers
   for (const auto& maneuver : maneuvers) {
     auto* trip_maneuver = trip_directions.add_maneuver();

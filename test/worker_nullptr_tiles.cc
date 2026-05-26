@@ -4,6 +4,8 @@
 #include "thor/worker.h"
 #include "worker.h"
 
+#include <stdexcept>
+
 using namespace testing;
 using namespace valhalla;
 using namespace std::string_literals;
@@ -16,6 +18,10 @@ constexpr size_t AttemptsCount = 1000;
 const auto Config = test::make_config("test/data/whitelion_tiles");
 constexpr auto TestRequest =
     R"({"locations":[{"lat":51.455768530466514,"lon":-2.5954368710517883},{"lat":51.456082740244824,"lon":-2.595050632953644}],"costing":"auto"})";
+constexpr auto ClosedGraphRequest =
+    R"({"locations":[{"lat":51.455768530466514,"lon":-2.5954368710517883},{"lat":51.456082740244824,"lon":-2.595050632953644}],"costing":"auto","edge_whitelist":[]})";
+constexpr auto TraceRequest =
+    R"({"shape":[{"lat":51.455768530466514,"lon":-2.5954368710517883},{"lat":51.456082740244824,"lon":-2.595050632953644}],"costing":"auto","shape_match":"map_snap"})";
 
 class RandomGraphReader : public baldr::GraphReader {
 public:
@@ -72,6 +78,60 @@ protected:
 
     return random_reader;
   }
+
+  static bool loki(Api& request, loki::loki_worker_t& worker) {
+    try {
+      switch (request.options().action()) {
+        case Options::route:
+          worker.route(request);
+          return true;
+        case Options::trace_route:
+        case Options::trace_attributes:
+          worker.trace(request);
+          return true;
+        default:
+          throw std::runtime_error("unsupported action");
+      }
+    } catch (const std::exception&) { return false; }
+  }
+
+  static void thor(Api& request, thor::thor_worker_t& worker) {
+    try {
+      switch (request.options().action()) {
+        case Options::route:
+          worker.route(request);
+          break;
+        case Options::trace_route:
+          worker.trace_route(request);
+          break;
+        case Options::trace_attributes:
+          worker.trace_attributes(request);
+          break;
+        default:
+          throw std::runtime_error("unsupported action");
+      }
+    } catch (const std::exception&) {
+      // Ignore exceptions
+    }
+  }
+
+  static void exercise_thor(const char* request_json, Options::Action action) {
+    auto original_reader = createGraphReader();
+    auto random_reader = createRandomGraphReader(original_reader);
+
+    loki::loki_worker_t loki_worker(Config, original_reader);
+    thor::thor_worker_t thor_worker(Config, random_reader);
+
+    for (size_t attempt = 0; attempt < AttemptsCount; ++attempt) {
+      Api request;
+      ParseApi(request_json, action, request);
+      if (loki(request, loki_worker)) {
+        ASSERT_NO_FATAL_FAILURE(thor(request, thor_worker));
+      }
+      loki_worker.cleanup();
+      thor_worker.cleanup();
+    }
+  }
 };
 
 /*static*/
@@ -94,25 +154,20 @@ TEST_F(WorkerNullptrTiles, loki_worker_null_test) {
   }
 }
 
-TEST_F(WorkerNullptrTiles, thor_worker_null_test) {
-  auto original_reader = createGraphReader();
-  auto random_reader = createRandomGraphReader(original_reader);
+TEST_F(WorkerNullptrTiles, thor_route_null_test) {
+  exercise_thor(TestRequest, Options::route);
+}
 
-  loki::loki_worker_t loki_worker(Config, original_reader);
-  thor::thor_worker_t thor_worker(Config, random_reader);
+TEST_F(WorkerNullptrTiles, thor_trace_route_null_test) {
+  exercise_thor(TraceRequest, Options::trace_route);
+}
 
-  for (size_t attempt = 0; attempt < AttemptsCount; ++attempt) {
-    Api request;
-    ParseApi(TestRequest, Options::route, request);
-    ASSERT_NO_THROW(loki_worker.route(request));
-    try {
-      ASSERT_NO_FATAL_FAILURE(thor_worker.route(request));
-    } catch (const std::exception& e) {
-      // Ignore exceptions
-    }
-    loki_worker.cleanup();
-    thor_worker.cleanup();
-  }
+TEST_F(WorkerNullptrTiles, thor_trace_attributes_null_test) {
+  exercise_thor(TraceRequest, Options::trace_attributes);
+}
+
+TEST_F(WorkerNullptrTiles, thor_closed_graph_null_test) {
+  exercise_thor(ClosedGraphRequest, Options::route);
 }
 
 int main(int argc, char* argv[]) {

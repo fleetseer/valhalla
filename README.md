@@ -22,6 +22,54 @@ Valhalla is an open source routing engine and accompanying libraries for use wit
 | ----- | --------------- | ------------- | -----------
 | [![Build Linux](https://github.com/valhalla/valhalla/actions/workflows/linux.yml/badge.svg)](https://github.com/valhalla/valhalla/actions/workflows/linux.yml) | [![Windows & macOS CI](https://github.com/valhalla/valhalla/actions/workflows/osx_win_python_builds.yml/badge.svg)](https://github.com/valhalla/valhalla/actions/workflows/osx_win_python_builds.yml) | [![codecov](https://codecov.io/gh/valhalla/valhalla/branch/master/graph/badge.svg)](https://codecov.io/gh/valhalla/valhalla) | [![timezone_db](https://img.shields.io/badge/tzdb%20version-2025c-blue.svg)](https://github.com/valhalla/valhalla/actions/workflows/publish_tz_db.yml)
 
+## FleetSeer fork maintenance
+
+This fork keeps FleetSeer-specific routing customizations on `master` and publishes a small Linux x64 devkit release asset for downstream builds. The devkit contains the release static library plus headers and generated build files needed by FleetSeer's Bun FFI wrapper.
+
+### Publishing a FleetSeer devkit
+
+1. Merge FleetSeer customizations to `master`.
+2. Build a lean release static library:
+
+```bash
+cmake -S . -B build-fleetseer-release \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+  -DBUILD_SHARED_LIBS=OFF \
+  -DENABLE_NODE_BINDINGS=OFF \
+  -DENABLE_PYTHON_BINDINGS=OFF \
+  -DENABLE_TESTS=OFF \
+  -DENABLE_SERVICES=OFF \
+  -DENABLE_DATA_TOOLS=OFF \
+  -DENABLE_SINGLE_FILES_WERROR=Off
+cmake --build build-fleetseer-release --target valhalla -j$(nproc)
+```
+
+3. Package the devkit:
+
+```bash
+FLEETSEER_VALHALLA_BUILD_DIR="$PWD/build-fleetseer-release" \
+  ./scripts/fleetseer/build-devkit.sh
+```
+
+4. Create a GitHub release named `fleetseer-valhalla-<short-sha>` from the exact commit and upload:
+   - `dist/fleetseer-valhalla-devkit-linux-x64.tar.gz`
+   - `dist/fleetseer-valhalla-devkit-linux-x64.tar.gz.sha256`
+5. Update FleetSeer's `packages/valhalla/valhalla-source.json` to the release tag, commit, and SHA256, then run `bun --cwd packages/valhalla run build:native-valhalla-matrix`.
+
+### Syncing with upstream
+
+Keep `master` as the canonical FleetSeer fork branch. Do not rebase pushed branches. Prefer merging a stable upstream release tag instead of `upstream/master` when possible.
+
+```bash
+git remote add upstream https://github.com/valhalla/valhalla.git
+git fetch upstream
+git checkout -b chore/sync-upstream-YYYY-MM master
+git merge upstream/master
+```
+
+Resolve conflicts, run focused tests for FleetSeer custom request and response fields, build the release devkit, update FleetSeer, and merge through a PR.
+
 ## Generative AI usage
 
 While we absolutely accept AI usage for Valhalla (and its related projects), we require the following guidelines to be followed:

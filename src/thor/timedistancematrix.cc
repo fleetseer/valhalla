@@ -412,11 +412,14 @@ template <const ExpansionType expansion_direction, const bool FORWARD>
 void TimeDistanceMatrix::InitDestinations(
     GraphReader& graphreader,
     const google::protobuf::RepeatedPtrField<valhalla::Location>& locations) {
-  // For each destination
+  // Keep destinations_ indexed by the original location index. Some synthetic or
+  // restriction-filtered locations may have no usable correlated edge, but later
+  // dest_edges_ entries still carry location indexes. Skipping an empty
+  // destination here makes UpdateDestinations index past destinations_.
   uint32_t idx = 0;
   for (const auto& loc : locations) {
+    destinations_.emplace_back();
     // Set up the destination - consider each possible location edge.
-    bool first_edge = true;
     for (const auto& edge : loc.correlation().edges()) {
       // Disallow any user avoided edges if the avoid location is behind the destination along the
       // edge or before the destination for REVERSE
@@ -424,12 +427,6 @@ void TimeDistanceMatrix::InitDestinations(
       if (FORWARD ? costing_->AvoidAsOriginEdge(edgeid, edge.percent_along())
                   : costing_->AvoidAsDestinationEdge(edgeid, edge.percent_along())) {
         continue;
-      }
-
-      // Add a destination if this is the first allowed edge for the location
-      if (first_edge) {
-        destinations_.emplace_back();
-        first_edge = false;
       }
 
       // Form a threshold cost (the total cost to traverse the edge), also based on forward path for

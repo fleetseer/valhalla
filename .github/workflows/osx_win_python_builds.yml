@@ -45,6 +45,9 @@ on:
         description: "Builds and publishes the Python bindings to https://test.pypi.org/"
         required: false
         default: false
+
+permissions:
+  contents: read
         
 # Cancel CI runs on a branch when new commits were pushed
 # See https://stackoverflow.com/a/72408109/2582935
@@ -53,7 +56,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # only run tmate if manually invoked and debug_enabled == true or a previous step failed
+  # only run tmate if manually invoked and debug_enabled == true
   SETUP_TMATE: ${{ ((github.event_name == 'workflow_dispatch') && (github.event.inputs.debug_enabled == 'true')) && (github.repository_owner == 'valhalla') }}
   PUBLISH_PYPI: ${{ (startsWith(github.ref, 'refs/tags') || (github.event_name == 'schedule') || ((github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/master'))) && (github.repository_owner == 'valhalla') }}
 
@@ -77,7 +80,7 @@ jobs:
     needs: [publish_pypi]
     if: ${{ needs.publish_pypi.outputs.PUBLISH_PYPI == 'true' || github.event.inputs.python_test_publish == 'true' }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           submodules: recursive
           # we need to fetch all tags for setuptools-scm to work properly
@@ -93,7 +96,7 @@ jobs:
           python3 -m build --sdist  # -> dist/<name>-<version>.tar.gz
 
       - name: Upload sdist
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4
         with:
           name: sdist
           path: dist/*.tar.gz
@@ -111,7 +114,7 @@ jobs:
           - arch: aarch64
             runner: ubuntu-24.04-arm
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           submodules: recursive
           # we need to fetch all tags for setuptools-scm to work properly
@@ -119,7 +122,7 @@ jobs:
 
       # this is only used to run cibuildwheel
       - name: Configure Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@7f4fc3e22c37d6ff65e88745f38bd3157c663f7c
         with:
           python-version: '3.12'
 
@@ -133,7 +136,8 @@ jobs:
         run: echo "VALHALLA_VERSION_MODIFIER=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
 
       - name: Restore ccache
-        uses: tespkg/actions-cache/restore@v1
+        if: github.event_name != 'pull_request'
+        uses: tespkg/actions-cache/restore@5266136934510ff415530345510ff3fc99f4cd89
         id: cache-ccache-restore
         with:
           endpoint: fsn1.your-objectstorage.com
@@ -144,7 +148,7 @@ jobs:
           path: /home/runner/.cache/ccache
           key: ccache-manylinux_2_28_${{  matrix.arch  }}
 
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
         with:
           name: sdist
           path: dist
@@ -160,7 +164,7 @@ jobs:
           fi
           echo "sdist_path=$(find dist -maxdepth 1 -type f -print -quit)" >> $GITHUB_OUTPUT
 
-      - uses: pypa/cibuildwheel@v2.23.3
+      - uses: pypa/cibuildwheel@1b198eb0fd40daf384929579c8a9eafdcc4a41cc
         with:
           package-dir: ${{ steps.sdist.outputs.sdist_path }}   # build wheels from the sdist
         env:
@@ -178,8 +182,8 @@ jobs:
       # TODO: probably need to delete the key first, since it's just a single key
 
       - name: Save ccache
-        if: always()
-        uses: tespkg/actions-cache/save@v1
+        if: ${{ always() && github.event_name != 'pull_request' }}
+        uses: tespkg/actions-cache/save@5266136934510ff415530345510ff3fc99f4cd89
         with:
           endpoint: fsn1.your-objectstorage.com
           accessKey: ${{ secrets.HETZNER_S3_ACCESS_KEY }}
@@ -189,14 +193,14 @@ jobs:
           key: ccache-manylinux_2_28_${{  matrix.arch  }}
 
       - name: Upload wheels
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: wheels-linux-${{  matrix.arch  }}
           path: wheelhouse/*.whl
 
       - name: Setup tmate session
-        uses: mxschmitt/action-tmate@v3
-        if: ${{ env.SETUP_TMATE == 'true' || failure() }}
+        uses: mxschmitt/action-tmate@c0afd6f790e3a5564914980036ebf83216678101
+        if: env.SETUP_TMATE == 'true'
         with:
           detached: true
   
@@ -207,7 +211,7 @@ jobs:
     name: Build OSX & Python wheels
     needs: [publish_pypi]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           submodules: recursive
           # we need to fetch all tags for setuptools-scm to work properly
@@ -229,7 +233,8 @@ jobs:
         run: echo "VALHALLA_VERSION_MODIFIER=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
 
       - name: Restore ccache
-        uses: tespkg/actions-cache/restore@v1
+        if: github.event_name != 'pull_request'
+        uses: tespkg/actions-cache/restore@5266136934510ff415530345510ff3fc99f4cd89
         id: cache-ccache-restore
         with:
           endpoint: fsn1.your-objectstorage.com
@@ -256,7 +261,7 @@ jobs:
         run: make -C build -j$(sysctl -n hw.logicalcpu) tests
 
       - name: Delete cache to save the latest
-        if: ${{ needs.publish_pypi.outputs.PUBLISH_PYPI != 'true' }}
+        if: ${{ needs.publish_pypi.outputs.PUBLISH_PYPI != 'true' && github.event_name != 'pull_request' }}
         run: |
           KEY="${{ steps.cache-ccache-restore.outputs.cache-primary-key }}"
           gh cache delete ${KEY} || true
@@ -264,8 +269,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Save ccache
-        if: ${{ needs.publish_pypi.outputs.PUBLISH_PYPI != 'true' }}
-        uses: tespkg/actions-cache/save@v1
+        if: ${{ needs.publish_pypi.outputs.PUBLISH_PYPI != 'true' && github.event_name != 'pull_request' }}
+        uses: tespkg/actions-cache/save@5266136934510ff415530345510ff3fc99f4cd89
         with:
           endpoint: fsn1.your-objectstorage.com
           accessKey: ${{ secrets.HETZNER_S3_ACCESS_KEY }}
@@ -280,7 +285,7 @@ jobs:
       
       # only package python bindings if it's not a PR
       
-      - uses: pypa/cibuildwheel@v2.23.3
+      - uses: pypa/cibuildwheel@1b198eb0fd40daf384929579c8a9eafdcc4a41cc
         if: ${{ needs.publish_pypi.outputs.PUBLISH_PYPI == 'true' || github.event.inputs.python_test_publish == 'true' }}
         env:
           CIBW_ENVIRONMENT: >
@@ -294,15 +299,14 @@ jobs:
 
       - name: Upload wheels
         if: ${{ needs.publish_pypi.outputs.PUBLISH_PYPI == 'true' || github.event.inputs.python_test_publish == 'true' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: wheels-osx-arm64
           path: wheelhouse/*.whl
 
       - name: Setup tmate session
-        uses: mxschmitt/action-tmate@v3
-        # only run this if manually invoked and debug_enabled == true or a previous step failed
-        if: ${{ env.SETUP_TMATE == 'true' || failure() }}
+        uses: mxschmitt/action-tmate@c0afd6f790e3a5564914980036ebf83216678101
+        if: env.SETUP_TMATE == 'true'
         with:
           detached: true
   
@@ -318,7 +322,7 @@ jobs:
       VCPKG_DISABLE_COMPILER_TRACKING: ON
       VCPKG_ROOT: ${{ github.workspace }}/vcpkg
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           submodules: recursive
           # we need to fetch all tags for setuptools-scm to work properly
@@ -351,7 +355,8 @@ jobs:
           cmd.exe /c bootstrap-vcpkg.bat
 
       - name: Restore vcpkg packages
-        uses: tespkg/actions-cache/restore@v1
+        if: github.event_name != 'pull_request'
+        uses: tespkg/actions-cache/restore@5266136934510ff415530345510ff3fc99f4cd89
         id: vcpkg_restore
         with:
           endpoint: fsn1.your-objectstorage.com
@@ -368,7 +373,7 @@ jobs:
             vcpkg/downloads/tools
 
       - name: Setup Developer Command Prompt for VS
-        uses: ilammy/msvc-dev-cmd@v1
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756
 
       - name: Get version modifier
         id: version-modifier
@@ -398,8 +403,8 @@ jobs:
             -DVALHALLA_VERSION_MODIFIFER=${{ env.VALHALLA_VERSION_MODIFIER }}
 
       - name: Save vcpkg packages
-        if: ${{ needs.publish_pypi.outputs.PUBLISH_PYPI != 'true' && steps.vcpkg_restore.outputs.cache-hit != 'true' }}
-        uses: tespkg/actions-cache/save@v1
+        if: ${{ needs.publish_pypi.outputs.PUBLISH_PYPI != 'true' && github.event_name != 'pull_request' && steps.vcpkg_restore.outputs.cache-hit != 'true' }}
+        uses: tespkg/actions-cache/save@5266136934510ff415530345510ff3fc99f4cd89
         with:
           endpoint: fsn1.your-objectstorage.com
           accessKey: ${{ secrets.HETZNER_S3_ACCESS_KEY }}
@@ -435,7 +440,7 @@ jobs:
       
       # only package python bindings if it's not a PR
       
-      - uses: pypa/cibuildwheel@v2.23.3
+      - uses: pypa/cibuildwheel@1b198eb0fd40daf384929579c8a9eafdcc4a41cc
         if: ${{ needs.publish_pypi.outputs.PUBLISH_PYPI == 'true' || github.event.inputs.python_test_publish == 'true' }}
         env:
           CIBW_ENVIRONMENT_WINDOWS: >-
@@ -448,15 +453,14 @@ jobs:
 
       - name: Upload wheels
         if: ${{ needs.publish_pypi.outputs.PUBLISH_PYPI == 'true' || github.event.inputs.python_test_publish == 'true' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: wheels-win-amd64
           path: wheelhouse/*.whl
 
       - name: Setup tmate session
-        uses: mxschmitt/action-tmate@v3
-        # only run this if manually invoked and debug_enabled == true or a previous step failed
-        if: ${{ env.SETUP_TMATE == 'true' || failure() }}
+        uses: mxschmitt/action-tmate@c0afd6f790e3a5564914980036ebf83216678101
+        if: env.SETUP_TMATE == 'true'
         with:
           detached: true
 
@@ -473,9 +477,9 @@ jobs:
           - arch: aarch64
             runner: ubuntu-24.04-arm
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           path: dist
           merge-multiple: true
@@ -492,13 +496,13 @@ jobs:
     runs-on: macos-14
     if: ${{ needs.publish_pypi.outputs.PUBLISH_PYPI == 'true' || github.event.inputs.python_test_publish == 'true' }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@7f4fc3e22c37d6ff65e88745f38bd3157c663f7c
         with:
           python-version: '3.13'
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           path: dist
           merge-multiple: true
@@ -515,13 +519,13 @@ jobs:
     runs-on: windows-2022
     if: ${{ needs.publish_pypi.outputs.PUBLISH_PYPI == 'true' || github.event.inputs.python_test_publish == 'true' }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@7f4fc3e22c37d6ff65e88745f38bd3157c663f7c
         with:
           python-version: '3.13'
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           path: dist
           merge-multiple: true
@@ -540,20 +544,23 @@ jobs:
     if: ${{ needs.publish_pypi.outputs.PUBLISH_PYPI == 'true' && github.event.inputs.python_test_publish != 'true' }}
 
     permissions:
+      contents: read
       id-token: write # This is required for requesting the JWT from Github for PyPI
 
+    environment: pypi
+
     steps:
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@7f4fc3e22c37d6ff65e88745f38bd3157c663f7c
         with:
           python-version: '3.13'
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           path: dist
           merge-multiple: true
 
       - name: Publish to Test PyPI
-        uses: pypa/gh-action-pypi-publish@v1.13.0
+        uses: pypa/gh-action-pypi-publish@106e0b0b7c337fa67ed433972f777c6357f78598
         with:
           verbose: true
           # uncomment when testing!

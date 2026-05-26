@@ -358,6 +358,8 @@ message Costing {
     oneof has_multimodal_start_end_max_distance {
       uint32 multimodal_start_end_max_distance = 96;
     }
+    bool edge_whitelist_enabled = 97;
+    repeated uint64 edge_whitelist = 98;
   }
 
   oneof has_options {
@@ -547,4 +549,5 @@ message Options {
   TileOptions tile_options = 64;                                   // additional /tile specific options
   repeated Levels exclude_levels = 65;                             // Levels to exclude within the exclude_polygon at the same index
   uint32 expansion_max_distance = 66;                              // Maximum path distance in meters for expansion. 0 = disabled.
+  bool include_route_edge_ids = 67;                                // Include ordered directed edge IDs in route legs.
 }

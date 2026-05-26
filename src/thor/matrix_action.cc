@@ -35,6 +35,10 @@ thor_worker_t::get_matrix_algorithm(Api& request, const bool has_time, const std
     return &time_distance_bss_matrix_;
   }
 
+  if (request.options().include_route_edge_ids() && mode != travel_mode_t::kPublicTransit) {
+    return &costmatrix_;
+  }
+
   Matrix::Algorithm config_algo = Matrix::CostMatrix;
   switch (source_to_target_algorithm) {
     case SELECT_OPTIMAL:

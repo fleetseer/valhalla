@@ -309,7 +309,8 @@ bool CostMatrix::SourceToTarget(Api& request,
 
   // resize/reserve all properties of Matrix on first pass only
   valhalla::Matrix& matrix = *request.mutable_matrix();
-  reserve_pbf_arrays(matrix, best_connection_.size(), request.options().verbose(), costing_->pass());
+  reserve_pbf_arrays(matrix, best_connection_.size(), request.options().verbose(), costing_->pass(),
+                     request.options().include_route_edge_ids());
 
   // Form the matrix PBF output
   graph_tile_ptr tile;
@@ -1232,8 +1233,9 @@ std::string CostMatrix::RecostFormPath(GraphReader& graphreader,
                                        const uint32_t connection_idx,
                                        const baldr::TimeInfo& time_info,
                                        const bool invariant) {
-  // no need to look at source == target or missing connectivity
-  if ((!has_time_ && request.options().shape_format() == no_shape && !request.options().verbose()) ||
+  // Skip path reconstruction unless the response needs path-derived data.
+  if ((!has_time_ && !request.options().include_route_edge_ids() &&
+       request.options().shape_format() == no_shape && !request.options().verbose()) ||
       connection.distance == kMaxCost) {
     return "";
   }
@@ -1290,6 +1292,15 @@ std::string CostMatrix::RecostFormPath(GraphReader& graphreader,
       std::move(superseded.begin(), superseded.end(), std::back_inserter(path_edges));
     } else
       path_edges.emplace_back(std::move(opp_edge_id));
+  }
+
+  if (request.options().include_route_edge_ids()) {
+    auto* edge_ids = request.mutable_matrix()->mutable_edge_ids(connection_idx);
+    edge_ids->clear_edge_id();
+    edge_ids->mutable_edge_id()->Reserve(path_edges.size());
+    for (const auto& path_edge : path_edges) {
+      edge_ids->add_edge_id(path_edge.value);
+    }
   }
 
   const auto* source_edge =

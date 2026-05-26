@@ -1919,6 +1919,9 @@ void TripLegBuilder::Build(
 
   // prepare to make some edges!
   trip_path.mutable_node()->Reserve((path_end - path_begin) + 1);
+  if (options.include_route_edge_ids()) {
+    trip_path.mutable_edge_id()->Reserve(path_end - path_begin);
+  }
 
   // collect the level changes
   float prev_level = kMaxLevel;
@@ -1934,6 +1937,10 @@ void TripLegBuilder::Build(
   // loop over the edges to build the trip leg
   for (auto edge_itr = path_begin; edge_itr != path_end; ++edge_itr, ++edge_index) {
     const GraphId& edge = edge_itr->edgeid;
+    if (options.include_route_edge_ids()) {
+      trip_path.add_edge_id(edge.value);
+    }
+
     graphtile = graphreader.GetGraphTile(edge, graphtile);
     if (graphtile == nullptr) {
       throw tile_gone_error_t("TripLegBuilder::Build failed", edge);

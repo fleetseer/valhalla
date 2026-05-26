@@ -97,6 +97,9 @@ end_node_t GetEndEdges(GraphReader& reader, const valhalla::Location& destinatio
     if (edge.end_node()) {
       // If this edge ends at a node add its end node
       auto tile = reader.GetGraphTile(graphid);
+      if (tile == nullptr) {
+        throw std::runtime_error("Couldn't get the destination edge tile");
+      }
       auto* directededge = tile->directededge(graphid);
       end_nodes.insert({directededge->endnode(), std::make_pair(edge, 0.0f)});
     } else {
