@@ -12,6 +12,7 @@
 #include <valhalla/thor/bidirectional_astar.h>
 #include <valhalla/thor/centroid.h>
 #include <valhalla/thor/costmatrix.h>
+#include <valhalla/thor/exactcostmatrix.h>
 #include <valhalla/thor/isochrone.h>
 #include <valhalla/thor/multimodal_astar.h>
 #include <valhalla/thor/multimodal_transit.h>
@@ -37,7 +38,8 @@ public:
   enum SOURCE_TO_TARGET_ALGORITHM : uint8_t {
     SELECT_OPTIMAL = 0,
     COST_MATRIX = 1,
-    TIME_DISTANCE_MATRIX = 2
+    TIME_DISTANCE_MATRIX = 2,
+    EXACT_COST_MATRIX = 3
   };
   thor_worker_t(const boost::property_tree::ptree& config,
                 const std::shared_ptr<baldr::GraphReader>& graph_reader = {});
@@ -119,6 +121,7 @@ protected:
 
   // Time distance matrix
   CostMatrix costmatrix_;
+  ExactCostMatrix exact_costmatrix_;
   TimeDistanceMatrix time_distance_matrix_;
   TimeDistanceBSSMatrix time_distance_bss_matrix_;
 

@@ -63,7 +63,7 @@ thor_worker_t::thor_worker_t(const boost::property_tree::ptree& config,
       bidir_astar(config.get_child("thor")), multimodal_astar(config.get_child("thor")),
       multi_modal_transit(config.get_child("thor")), timedep_forward(config.get_child("thor")),
       timedep_reverse(config.get_child("thor")), costmatrix_(config.get_child("thor")),
-      time_distance_matrix_(config.get_child("thor")),
+      exact_costmatrix_(config.get_child("thor")), time_distance_matrix_(config.get_child("thor")),
       time_distance_bss_matrix_(config.get_child("thor")), isochrone_gen(config.get_child("thor")),
       reader(graph_reader ? graph_reader
                           : std::make_shared<baldr::GraphReader>(config.get_child("mjolnir"))),
@@ -96,6 +96,8 @@ thor_worker_t::thor_worker_t(const boost::property_tree::ptree& config,
     source_to_target_algorithm = TIME_DISTANCE_MATRIX;
   } else if (conf_algorithm == "costmatrix") {
     source_to_target_algorithm = COST_MATRIX;
+  } else if (conf_algorithm == "exactcostmatrix") {
+    source_to_target_algorithm = EXACT_COST_MATRIX;
   } else {
     source_to_target_algorithm = SELECT_OPTIMAL;
   }
@@ -359,6 +361,7 @@ void thor_worker_t::cleanup() {
   multimodal_astar.Clear();
   trace.clear();
   costmatrix_.Clear();
+  exact_costmatrix_.Clear();
   time_distance_matrix_.Clear();
   time_distance_bss_matrix_.Clear();
   isochrone_gen.Clear();

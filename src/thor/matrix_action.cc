@@ -35,7 +35,8 @@ thor_worker_t::get_matrix_algorithm(Api& request, const bool has_time, const std
     return &time_distance_bss_matrix_;
   }
 
-  if (request.options().include_route_edge_ids() && mode != travel_mode_t::kPublicTransit) {
+  if (request.options().include_route_edge_ids() && mode != travel_mode_t::kPublicTransit &&
+      source_to_target_algorithm != EXACT_COST_MATRIX) {
     return &costmatrix_;
   }
 
@@ -65,15 +66,18 @@ thor_worker_t::get_matrix_algorithm(Api& request, const bool has_time, const std
     case TIME_DISTANCE_MATRIX:
       config_algo = Matrix::TimeDistanceMatrix;
       break;
+    case EXACT_COST_MATRIX:
+      return &exact_costmatrix_;
   }
 
   // similar to routing: prefer the exact unidirectional algo if not requested otherwise
   // don't use matrix_type, we only need it to set the right warnings for what will be used
   if (has_time && !request.options().prioritize_bidirectional() &&
-      source_to_target_algorithm != COST_MATRIX) {
+      source_to_target_algorithm != COST_MATRIX && source_to_target_algorithm != EXACT_COST_MATRIX) {
     return &time_distance_matrix_;
   } else if (has_time && request.options().prioritize_bidirectional() &&
-             source_to_target_algorithm != TIME_DISTANCE_MATRIX) {
+             source_to_target_algorithm != TIME_DISTANCE_MATRIX &&
+             source_to_target_algorithm != EXACT_COST_MATRIX) {
     return &costmatrix_;
   } else if (config_algo == Matrix::CostMatrix) {
     if (has_time && !request.options().prioritize_bidirectional()) {
@@ -104,6 +108,7 @@ std::string thor_worker_t::matrix(Api& request) {
   // allow all algos to be cancelled
   for (auto* alg : std::vector<MatrixAlgorithm*>{
            &costmatrix_,
+           &exact_costmatrix_,
            &time_distance_matrix_,
            &time_distance_bss_matrix_,
        }) {
