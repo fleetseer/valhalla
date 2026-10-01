@@ -1,3 +1,9 @@
+# FleetSeer fork abandoned
+
+This FleetSeer fork is abandoned and is no longer maintained or used by FleetSeer. For Valhalla development, releases, and documentation, see the upstream [valhalla/valhalla](https://github.com/valhalla/valhalla) project.
+
+The FleetSeer-specific maintenance instructions below are obsolete and retained only for historical reference.
+
 
 
 
@@ -22,7 +28,9 @@ Valhalla is an open source routing engine and accompanying libraries for use wit
 | ----- | --------------- | ------------- | -----------
 | [![Build Linux](https://github.com/valhalla/valhalla/actions/workflows/linux.yml/badge.svg)](https://github.com/valhalla/valhalla/actions/workflows/linux.yml) | [![Windows & macOS CI](https://github.com/valhalla/valhalla/actions/workflows/osx_win_python_builds.yml/badge.svg)](https://github.com/valhalla/valhalla/actions/workflows/osx_win_python_builds.yml) | [![codecov](https://codecov.io/gh/valhalla/valhalla/branch/master/graph/badge.svg)](https://codecov.io/gh/valhalla/valhalla) | [![timezone_db](https://img.shields.io/badge/tzdb%20version-2025c-blue.svg)](https://github.com/valhalla/valhalla/actions/workflows/publish_tz_db.yml)
 
-## FleetSeer fork maintenance
+## FleetSeer fork maintenance (historical)
+
+> These instructions describe the former fork workflow. They are obsolete and should not be used for current FleetSeer development.
 
 This fork keeps FleetSeer-specific routing customizations on `master` and publishes a small Linux x64 devkit release asset for downstream builds. The devkit contains the release static library plus headers and generated build files needed by FleetSeer's Bun FFI wrapper.
 
